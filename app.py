@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime
+import pytz  
 
 # 設定網頁標題與圖示
 st.set_page_config(page_title="簡易進銷存管理系統", page_icon="📦", layout="centered")
@@ -87,8 +88,12 @@ elif choice == "➕ 新增商品":
                 new_row = pd.DataFrame([{"商品編號": p_id, "商品名稱": p_name, "目前庫存": p_init, "安全庫存": p_safe}])
                 df_stock = pd.concat([df_stock, new_row], ignore_index=True)
                 df_stock.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
-                
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                import pytz  # 記得在檔案最上方 import 喔！
+
+                # 強制使用台北時間 (UTC+8)
+                tw_tz = pytz.timezone("Asia/Taipei")
+                now = datetime.now(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
                 new_log = pd.DataFrame([{"時間": now, "商品編號": p_id, "商品名稱": p_name, "動作": "初始建立", "數量": p_init}])
                 df_log = pd.concat([df_log, new_log], ignore_index=True)
                 df_log.to_csv(LOG_FILE, index=False, encoding="utf-8-sig")
@@ -114,8 +119,10 @@ elif choice == "📥 商品進貨":
             idx = df_stock[df_stock["商品編號"] == p_id].index[0]
             df_stock.at[idx, "目前庫存"] += qty
             df_stock.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
-            
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # 強制使用台北時間 (UTC+8)
+            tw_tz = pytz.timezone("Asia/Taipei")
+            now = datetime.now(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
             new_log = pd.DataFrame([{"時間": now, "商品編號": p_id, "商品名稱": p_name, "動作": "進貨", "數量": qty}])
             df_log = pd.concat([df_log, new_log], ignore_index=True)
             df_log.to_csv(LOG_FILE, index=False, encoding="utf-8-sig")
@@ -149,7 +156,9 @@ elif choice == "📤 商品出貨":
                 df_stock.at[idx, "目前庫存"] -= qty
                 df_stock.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
                 
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+               # 強制使用台北時間 (UTC+8)
+                tw_tz = pytz.timezone("Asia/Taipei")
+                now = datetime.now(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
                 new_log = pd.DataFrame([{"時間": now, "商品編號": p_id, "商品名稱": p_name, "動作": "出貨", "數量": qty}])
                 df_log = pd.concat([df_log, new_log], ignore_index=True)
                 df_log.to_csv(LOG_FILE, index=False, encoding="utf-8-sig")
