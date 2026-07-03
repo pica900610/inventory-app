@@ -4,8 +4,21 @@ import os
 from datetime import datetime
 import pytz  
 
-# 設定網頁標題與圖示
-st.set_page_config(page_title="簡易進銷存管理系統", page_icon="📦", layout="centered")
+# --- 側邊欄狀態控制機制 ---
+# 檢查是否需要強制收回側邊欄（針對手機版的流暢優化）
+if "sidebar_state" not in st.session_state:
+    st.session_state.sidebar_state = "auto"
+
+# 設定網頁標題與圖示，並動態控制側邊欄狀態
+st.set_page_config(
+    page_title="簡易進銷存管理系統", 
+    page_icon="📦", 
+    layout="centered",
+    initial_sidebar_state=st.session_state.sidebar_state
+)
+
+# 重設狀態，確保下一次手動點開選單時是正常的
+st.session_state.sidebar_state = "auto"
 
 DB_FILE = "web_inventory_db.csv"
 LOG_FILE = "web_inventory_log.csv"
@@ -33,14 +46,16 @@ st.sidebar.markdown("### 🛠️ 功能選單")
 # 定義所有功能
 menu_items = ["📊 庫存報表", "➕ 新增商品", "📥 商品進貨", "📤 商品出貨", "📜 進出貨流水帳"]
 
-# 用迴圈直接列出按鈕，點擊後自動記錄頁面並強制收回側邊欄
+# 用迴圈直接列出按鈕
 for item in menu_items:
-    # 如果是目前選中的頁面，按鈕加個【型態】做視覺區隔
+    # 2. 按下功能應該立即變色：如果是目前選中的頁面，按鈕加個【primary】做藍色視覺區隔
     type_style = "primary" if st.session_state.current_page == item else "secondary"
     
     if st.sidebar.button(item, use_container_width=True, type=type_style):
         st.session_state.current_page = item
-        # 關鍵：利用 streamlit 的內建機制，當按下按鈕觸發頁面重新渲染時，手機版側邊欄會自動收回
+        # 1. 關鍵：點擊功能後，將側邊欄狀態設為 collapsed，並強制重新渲染，使手機版面板「立刻自動收回」
+        st.session_state.sidebar_state = "collapsed"
+        st.rerun()
 
 # 取得目前點選的頁面
 choice = st.session_state.current_page
@@ -89,8 +104,6 @@ elif choice == "➕ 新增商品":
                 df_stock = pd.concat([df_stock, new_row], ignore_index=True)
                 df_stock.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
 
-                import pytz  # 記得在檔案最上方 import 喔！
-
                 # 強制使用台北時間 (UTC+8)
                 tw_tz = pytz.timezone("Asia/Taipei")
                 now = datetime.now(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -137,7 +150,7 @@ elif choice == "📤 商品出貨":
         st.info("📭 目前沒有商品，請先去新增商品。")
     else:
         prod_options = [f"{row['商品編號']} - {row['商品名稱']} (剩餘: {row['目前庫存']})" for _, row in df_stock.iterrows()]
-        selected_prod = st.selectbox("請選擇出貨商品", prod_options)
+        selected_prod = st.selectbox("請选择出貨商品", prod_options)
         
         p_id = selected_prod.split(" - ")[0]
         p_name = selected_prod.split(" - ")[1].split(" (")[0]
@@ -145,7 +158,8 @@ elif choice == "📤 商品出貨":
         idx = df_stock[df_stock["商品編號"] == p_id].index[0]
         current_qty = df_stock.at[idx, "目前庫存"]
         
-        qty = st.number_input("出貨數量", min_value=1, max_value=int(current_qty) if current_qty > 0 else 1, value=1, step=1)
+        # 修正：移除 max_value 硬限制，不管安不安全都可以自由輸入數量與連續點擊「+」
+        qty = st.number_input("出貨數量", min_value=1, value=1, step=1)
         
         if st.button("確認出貨", type="primary"):
             if current_qty <= 0:
@@ -156,17 +170,17 @@ elif choice == "📤 商品出貨":
                 df_stock.at[idx, "目前庫存"] -= qty
                 df_stock.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
                 
-               # 強制使用台北時間 (UTC+8)
+                # 強制使用台北時間 (UTC+8)
                 tw_tz = pytz.timezone("Asia/Taipei")
                 now = datetime.now(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
                 new_log = pd.DataFrame([{"時間": now, "商品編號": p_id, "商品名稱": p_name, "動作": "出貨", "數量": qty}])
                 df_log = pd.concat([df_log, new_log], ignore_index=True)
                 df_log.to_csv(LOG_FILE, index=False, encoding="utf-8-sig")
                 
-                st.success(f"🚀 出貨成功！【{p_name}】剩餘庫存：{df_stock.at[idx, '目前庫存']}")
+                st.success(f"🚀 出貨成功！【{p_name}】出貨 {qty} 件，剩餘庫存：{df_stock.at[idx, '目前庫存']}")
                 
                 if df_stock.at[idx, "目前庫存"] <= df_stock.at[idx, "安全庫存"]:
-                    st.warning(f"⚠️ 警報：該商品數量已低於安全庫存量 ({df_stock.at[idx, '安全庫存']})！")
+                    st.warning(f"⚠️ 提示：該商品數量已低於安全庫存量 ({df_stock.at[idx, '安全庫存']})！")
 
 # --- 功能 5：歷史日誌 ---
 elif choice == "📜 進出貨流水帳":
