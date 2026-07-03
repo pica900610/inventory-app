@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# 設定網頁標題與圖示（必須是第一個 Streamlit 指令）
+# 設定網頁標題與圖示
 st.set_page_config(page_title="簡易進銷存管理系統", page_icon="📦", layout="centered")
 
 DB_FILE = "web_inventory_db.csv"
@@ -22,32 +22,46 @@ if not os.path.exists(LOG_FILE):
 df_stock = pd.read_csv(DB_FILE, encoding="utf-8-sig", dtype={"商品編號": str})
 df_log = pd.read_csv(LOG_FILE, encoding="utf-8-sig", dtype={"商品編號": str})
 
-# --- 網頁標題 ---
-st.title("📦 簡易網頁版進銷存系統")
-st.write("電腦、手機皆可操作，點選左側或上方選單切換功能。")
+# --- 初始化頁面狀態 (Session State) ---
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "📊 庫存報表"
 
-# --- 功能選單 (側邊欄) ---
-menu = ["📊 庫存報表", "➕ 新增商品", "📥 商品進貨", "📤 商品出貨", "📜 進出貨流水帳"]
-choice = st.sidebar.selectbox("請選擇功能", menu)
+# --- 功能列：直接列出按鈕 ---
+st.sidebar.markdown("### 🛠️ 功能選單")
+
+# 定義所有功能
+menu_items = ["📊 庫存報表", "➕ 新增商品", "📥 商品進貨", "📤 商品出貨", "📜 進出貨流水帳"]
+
+# 用迴圈直接列出按鈕，點擊後自動記錄頁面並強制收回側邊欄
+for item in menu_items:
+    # 如果是目前選中的頁面，按鈕加個【型態】做視覺區隔
+    type_style = "primary" if st.session_state.current_page == item else "secondary"
+    
+    if st.sidebar.button(item, use_container_width=True, type=type_style):
+        st.session_state.current_page = item
+        # 關鍵：利用 streamlit 的內建機制，當按下按鈕觸發頁面重新渲染時，手機版側邊欄會自動收回
+
+# 取得目前點選的頁面
+choice = st.session_state.current_page
+
+# --- 網頁主要內容 ---
+st.title("📦 簡易網頁版進銷存系統")
 
 # --- 功能 1：庫存報表 ---
 if choice == "📊 庫存報表":
     st.subheader("當前庫存狀態")
     
     if df_stock.empty:
-        st.info("📭 目前倉庫空空如也，請先去「新增商品」喔！")
+        st.info("📭 目前倉庫空空如也，請先點選左側「➕ 新增商品」喔！")
     else:
-        # 檢查是否低於安全庫存，並加上警告標示
         def check_status(row):
             return "⚠️ 補貨警告" if row["目前庫存"] <= row["安全庫存"] else "正常"
         
         df_display = df_stock.copy()
         df_display["狀態"] = df_display.apply(check_status, axis=1)
         
-        # 顯示表格
         st.dataframe(df_display, use_container_width=True, hide_index=True)
         
-        # 低於安全庫存的特別提醒
         low_stock = df_display[df_display["狀態"] == "⚠️ 補貨警告"]
         if not low_stock.empty:
             st.warning(f"注意！目前有 {len(low_stock)} 項商品低於安全庫存，請儘速補貨！")
@@ -70,12 +84,10 @@ elif choice == "➕ 新增商品":
             elif p_id in df_stock["商品編號"].values:
                 st.error(f"❌ 商品編號【{p_id}】已經存在了！")
             else:
-                # 寫入資料
                 new_row = pd.DataFrame([{"商品編號": p_id, "商品名稱": p_name, "目前庫存": p_init, "安全庫存": p_safe}])
                 df_stock = pd.concat([df_stock, new_row], ignore_index=True)
                 df_stock.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
                 
-                # 寫入日誌
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 new_log = pd.DataFrame([{"時間": now, "商品編號": p_id, "商品名稱": p_name, "動作": "初始建立", "數量": p_init}])
                 df_log = pd.concat([df_log, new_log], ignore_index=True)
@@ -90,7 +102,6 @@ elif choice == "📥 商品進貨":
     if df_stock.empty:
         st.info("📭 目前沒有商品，請先去新增商品。")
     else:
-        # 讓使用者用下拉選單選商品，避免輸入錯誤
         prod_options = [f"{row['商品編號']} - {row['商品名稱']}" for _, row in df_stock.iterrows()]
         selected_prod = st.selectbox("請選擇進貨商品", prod_options)
         
@@ -99,12 +110,11 @@ elif choice == "📥 商品進貨":
         
         qty = st.number_input("進貨數量", min_value=1, value=1, step=1)
         
-        if st.button("確認進貨"):
+        if st.button("確認進貨", type="primary"):
             idx = df_stock[df_stock["商品編號"] == p_id].index[0]
             df_stock.at[idx, "目前庫存"] += qty
             df_stock.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
             
-            # 紀錄日誌
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             new_log = pd.DataFrame([{"時間": now, "商品編號": p_id, "商品名稱": p_name, "動作": "進貨", "數量": qty}])
             df_log = pd.concat([df_log, new_log], ignore_index=True)
@@ -123,7 +133,6 @@ elif choice == "📤 商品出貨":
         selected_prod = st.selectbox("請選擇出貨商品", prod_options)
         
         p_id = selected_prod.split(" - ")[0]
-        # 解析名稱
         p_name = selected_prod.split(" - ")[1].split(" (")[0]
         
         idx = df_stock[df_stock["商品編號"] == p_id].index[0]
@@ -131,7 +140,7 @@ elif choice == "📤 商品出貨":
         
         qty = st.number_input("出貨數量", min_value=1, max_value=int(current_qty) if current_qty > 0 else 1, value=1, step=1)
         
-        if st.button("確認出貨"):
+        if st.button("確認出貨", type="primary"):
             if current_qty <= 0:
                 st.error("❌ 該商品目前沒有庫存，無法出貨！")
             elif qty > current_qty:
@@ -140,7 +149,6 @@ elif choice == "📤 商品出貨":
                 df_stock.at[idx, "目前庫存"] -= qty
                 df_stock.to_csv(DB_FILE, index=False, encoding="utf-8-sig")
                 
-                # 紀錄日誌
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 new_log = pd.DataFrame([{"時間": now, "商品編號": p_id, "商品名稱": p_name, "動作": "出貨", "數量": qty}])
                 df_log = pd.concat([df_log, new_log], ignore_index=True)
@@ -148,7 +156,6 @@ elif choice == "📤 商品出貨":
                 
                 st.success(f"🚀 出貨成功！【{p_name}】剩餘庫存：{df_stock.at[idx, '目前庫存']}")
                 
-                # 檢查安全庫存
                 if df_stock.at[idx, "目前庫存"] <= df_stock.at[idx, "安全庫存"]:
                     st.warning(f"⚠️ 警報：該商品數量已低於安全庫存量 ({df_stock.at[idx, '安全庫存']})！")
 
@@ -158,5 +165,4 @@ elif choice == "📜 進出貨流水帳":
     if df_log.empty:
         st.info("📜 目前尚無任何進出貨紀錄。")
     else:
-        # 反轉順序，讓最新的紀錄顯示在最上面
         st.dataframe(df_log.iloc[::-1], use_container_width=True, hide_index=True)
